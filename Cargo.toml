@@ -1,0 +1,14 @@
+[package]
+name = "gitfmt"
+version = "0.1.0"
+authors = ["Alexander Theißen <alex.theissen@me.com>"]
+edition = "2018"
+
+[profile.release]
+lto = true
+
+[profile.bench]
+lto = true
+
+[dependencies]
+git2 = "0.11"
