@@ -55,32 +55,34 @@ fn main() {
     )
     .unwrap();
 
-    if !changed_lines.is_empty() {
-        let mut changes_json = String::new();
-        let mut changed_paths = HashSet::new();
-        changes_json.push('[');
-        for (path, start, end) in changed_lines {
-            changes_json.push_str(&format!(
-                "{{\"file\":\"{}\",\"range\":[{},{}]}},",
-                path.to_str().unwrap(),
-                start,
-                end
-            ));
-            changed_paths.insert(path);
-        }
-        changes_json.pop();
-        changes_json.push(']');
-
-        Command::new("rustfmt")
-            .args(&[
-                "+nightly",
-                "--unstable-features",
-                "--file-lines",
-                &changes_json,
-                "--skip-children",
-            ])
-            .args(changed_paths)
-            .status()
-            .unwrap();
+    if changed_lines.is_empty() {
+        return;
     }
+
+    let mut changes_json = String::new();
+    let mut changed_paths = HashSet::new();
+    changes_json.push('[');
+    for (path, start, end) in changed_lines {
+        changes_json.push_str(&format!(
+            "{{\"file\":\"{}\",\"range\":[{},{}]}},",
+            path.to_str().unwrap(),
+            start,
+            end
+        ));
+        changed_paths.insert(path);
+    }
+    changes_json.pop();
+    changes_json.push(']');
+
+    Command::new("rustfmt")
+        .args(&[
+            "+nightly",
+            "--unstable-features",
+            "--file-lines",
+            &changes_json,
+            "--skip-children",
+        ])
+        .args(changed_paths)
+        .status()
+        .unwrap();
 }
