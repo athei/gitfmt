@@ -17,7 +17,7 @@ fn main() {
     diff_options.include_untracked(true);
     diff_options.recurse_untracked_dirs(true);
     diff_options.show_untracked_content(true);
-    diff_options.context_lines(0);
+    diff_options.context_lines(2);
     let diff = repo
         .diff_tree_to_workdir(Some(&head), Some(&mut diff_options))
         .unwrap();
