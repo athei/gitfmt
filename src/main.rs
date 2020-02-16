@@ -31,11 +31,6 @@ fn main() {
                 return true;
             }
             match delta.status() {
-                Delta::Unmodified
-                | Delta::Deleted
-                | Delta::Typechange
-                | Delta::Unreadable
-                | Delta::Conflicted => true,
                 Delta::Added
                 | Delta::Modified
                 | Delta::Renamed
@@ -49,6 +44,7 @@ fn main() {
                     ));
                     true
                 }
+                _ => true,
             }
         }),
         None,
