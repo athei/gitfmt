@@ -1,13 +1,58 @@
 // Based on: https://gist.github.com/zroug/28605f45a662b483fb4a7c3545627f66
 
+mod format;
+
+use format::{Format, Formatter, Hunk, Hunks};
 use git2::Delta;
 use git2::DiffOptions;
 use git2::Repository;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::env::set_current_dir;
-use std::process::Command;
+
+struct FmtHunks<'a> {
+    fmt: &'a Formatter,
+    hunks: Hunks,
+}
+
+impl<'a> FmtHunks<'a> {
+    fn merge(&mut self, o: Self) {
+        assert!(self.fmt == o.fmt);
+        for mut hunks in o.hunks {
+            if let Some(p) = self.hunks.get_mut(&hunks.0) {
+                p.append(&mut hunks.1)
+            } else {
+                self.hunks.insert(hunks.0, hunks.1);
+            }
+        }
+    }
+
+    fn format(self) {
+        self.fmt.format(self.hunks).unwrap();
+    }
+}
 
 fn main() {
+    let fmts: [Formatter; 1] = [Formatter::RustFmt(format::CallRustFmt {})];
+    let mut ext_hunks = HashMap::with_capacity(fmts.len());
+
+    for fmt in fmts.iter() {
+        for ext in fmt.extensions() {
+            let old = ext_hunks.insert(
+                *ext,
+                FmtHunks {
+                    fmt,
+                    hunks: Hunks::new(),
+                },
+            );
+            if let Some(old) = old {
+                panic!(
+                    "Formatter {} tried to add extension already added by {}",
+                    *ext, old.fmt
+                );
+            }
+        }
+    }
+
     let repo = Repository::open_from_env().unwrap();
     set_current_dir(repo.workdir().unwrap()).unwrap();
 
@@ -22,14 +67,20 @@ fn main() {
         .diff_tree_to_workdir(Some(&head), Some(&mut diff_options))
         .unwrap();
 
-    let mut changed_lines = Vec::new();
     diff.foreach(
         &mut |_, _| true,
         Some(&mut |_, _| true),
         Some(&mut |delta, hunk| {
-            if delta.new_file().path().unwrap().extension() != Some("rs".as_ref()) {
+            let hunks = if let Some(ext) = delta.new_file().path().unwrap().extension() {
+                if let Some(hunks) = ext_hunks.get_mut(ext.to_str().unwrap()) {
+                    hunks
+                } else {
+                    return true;
+                }
+            } else {
                 return true;
-            }
+            };
+
             match delta.status() {
                 Delta::Added
                 | Delta::Modified
@@ -37,11 +88,16 @@ fn main() {
                 | Delta::Copied
                 | Delta::Untracked
                 | Delta::Ignored => {
-                    changed_lines.push((
-                        delta.new_file().path().unwrap().to_path_buf(),
-                        hunk.new_start(),
-                        hunk.new_start() + hunk.new_lines() - 1,
-                    ));
+                    let h = Hunk {
+                        start: hunk.new_start(),
+                        lines: hunk.new_lines(),
+                    };
+                    let path = delta.new_file().path().unwrap().to_path_buf();
+                    if let Some(existing) = hunks.hunks.get_mut(&path) {
+                        existing.push(h);
+                    } else {
+                        hunks.hunks.insert(path, vec![h]);
+                    }
                     true
                 }
                 _ => true,
@@ -51,34 +107,16 @@ fn main() {
     )
     .unwrap();
 
-    if changed_lines.is_empty() {
-        return;
+    let mut fmt_hunks: Vec<FmtHunks> = Vec::new();
+    for hunk in ext_hunks {
+        if let Some(hunks) = fmt_hunks.iter_mut().find(|n| n.fmt == hunk.1.fmt) {
+            hunks.merge(hunk.1);
+        } else {
+            fmt_hunks.push(hunk.1);
+        }
     }
 
-    let mut changes_json = String::new();
-    let mut changed_paths = HashSet::new();
-    changes_json.push('[');
-    for (path, start, end) in changed_lines {
-        changes_json.push_str(&format!(
-            "{{\"file\":\"{}\",\"range\":[{},{}]}},",
-            path.to_str().unwrap(),
-            start,
-            end
-        ));
-        changed_paths.insert(path);
+    for fmt_hunk in fmt_hunks.into_iter().filter(|x| !x.hunks.is_empty()) {
+        fmt_hunk.format();
     }
-    changes_json.pop();
-    changes_json.push(']');
-
-    Command::new("rustfmt")
-        .args(&[
-            "+nightly",
-            "--unstable-features",
-            "--file-lines",
-            &changes_json,
-            "--skip-children",
-        ])
-        .args(changed_paths)
-        .status()
-        .unwrap();
 }
