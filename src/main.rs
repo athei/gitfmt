@@ -2,56 +2,15 @@
 
 mod format;
 
-use format::{Format, Formatter, Hunk, Hunks};
+use format::{Formatters, Hunk};
 use git2::Delta;
 use git2::DiffOptions;
 use git2::Repository;
-use std::collections::HashMap;
 use std::env::set_current_dir;
 
-struct FmtHunks<'a> {
-    fmt: &'a Formatter,
-    hunks: Hunks,
-}
-
-impl<'a> FmtHunks<'a> {
-    fn merge(&mut self, o: Self) {
-        assert!(self.fmt == o.fmt);
-        for mut hunks in o.hunks {
-            if let Some(p) = self.hunks.get_mut(&hunks.0) {
-                p.append(&mut hunks.1)
-            } else {
-                self.hunks.insert(hunks.0, hunks.1);
-            }
-        }
-    }
-
-    fn format(self) {
-        self.fmt.format(self.hunks).unwrap();
-    }
-}
-
 fn main() {
-    let fmts: [Formatter; 1] = [Formatter::RustFmt(format::CallRustFmt {})];
-    let mut ext_hunks = HashMap::with_capacity(fmts.len());
-
-    for fmt in fmts.iter() {
-        for ext in fmt.extensions() {
-            let old = ext_hunks.insert(
-                *ext,
-                FmtHunks {
-                    fmt,
-                    hunks: Hunks::new(),
-                },
-            );
-            if let Some(old) = old {
-                panic!(
-                    "Formatter {} tried to add extension already added by {}",
-                    *ext, old.fmt
-                );
-            }
-        }
-    }
+    let formatters = format::construct_repo();
+    let mut formatters = Formatters::new(&formatters);
 
     let repo = Repository::open_from_env().unwrap();
     set_current_dir(repo.workdir().unwrap()).unwrap();
@@ -72,7 +31,7 @@ fn main() {
         Some(&mut |_, _| true),
         Some(&mut |delta, hunk| {
             let hunks = if let Some(ext) = delta.new_file().path().unwrap().extension() {
-                if let Some(hunks) = ext_hunks.get_mut(ext.to_str().unwrap()) {
+                if let Some(hunks) = formatters.fmts.get_mut(ext.to_str().unwrap()) {
                     hunks
                 } else {
                     return true;
@@ -107,16 +66,5 @@ fn main() {
     )
     .unwrap();
 
-    let mut fmt_hunks: Vec<FmtHunks> = Vec::new();
-    for hunk in ext_hunks {
-        if let Some(hunks) = fmt_hunks.iter_mut().find(|n| n.fmt == hunk.1.fmt) {
-            hunks.merge(hunk.1);
-        } else {
-            fmt_hunks.push(hunk.1);
-        }
-    }
-
-    for fmt_hunk in fmt_hunks.into_iter().filter(|x| !x.hunks.is_empty()) {
-        fmt_hunk.format();
-    }
+    formatters.format();
 }
