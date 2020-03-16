@@ -23,15 +23,15 @@ pub fn collect_hunks(formatters: &mut Formatters) {
         &mut |_, _| true,
         Some(&mut |_, _| true),
         Some(&mut |delta, hunk| {
-            let hunks = if let Some(ext) = delta.new_file().path().unwrap().extension() {
-                if let Some(hunks) = formatters.fmts.get_mut(ext.to_str().unwrap()) {
-                    hunks
-                } else {
-                    return true;
-                }
+            let ext = if let Some(ext) = delta.new_file().path().unwrap().extension() {
+                ext.to_str().unwrap()
             } else {
                 return true;
             };
+
+            if !formatters.ext_supported(ext) {
+                return true;
+            }
 
             match delta.status() {
                 Delta::Added
@@ -45,11 +45,7 @@ pub fn collect_hunks(formatters: &mut Formatters) {
                         lines: hunk.new_lines(),
                     };
                     let path = delta.new_file().path().unwrap().to_path_buf();
-                    if let Some(existing) = hunks.hunks.get_mut(&path) {
-                        existing.push(h);
-                    } else {
-                        hunks.hunks.insert(path, vec![h]);
-                    }
+                    formatters.add_hunk(ext, path, h);
                     true
                 }
                 _ => true,

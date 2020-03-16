@@ -4,21 +4,33 @@ use std::path::PathBuf;
 
 mod callrustfmt;
 
-pub type Hunks = HashMap<PathBuf, Vec<Hunk>>;
-
 pub struct Hunk {
     pub start: u32,
     pub lines: u32,
 }
 
-pub struct FmtHunks<'a> {
-    pub fmt: &'a Formatter,
-    pub hunks: Hunks,
-}
-
 pub struct Formatters<'a> {
     repo: &'a [Formatter],
-    pub fmts: HashMap<&'static str, FmtHunks<'a>>,
+    fmts: HashMap<&'static str, FmtHunks<'a>>,
+}
+
+type Hunks = HashMap<PathBuf, Vec<Hunk>>;
+
+struct FmtHunks<'a> {
+    fmt: &'a Formatter,
+    hunks: Hunks,
+}
+
+impl<'a> Formatters<'a> {
+    pub fn ext_supported(&self, ext: &str) -> bool {
+        self.fmts.contains_key(ext)
+    }
+
+    pub fn add_hunk(&mut self, ext: &str, path: PathBuf, hunk: Hunk) {
+        if let Some(hunks) = self.fmts.get_mut(ext) {
+            hunks.hunks.entry(path).or_insert(Vec::new()).push(hunk);
+        }
+    }
 }
 
 impl<'a> Formatters<'a> {
